@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pio --version)",
+      "Bash(pio run:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.wokwi.com)",
+      "Bash(pio pkg:*)",
+      "Bash(pio platform:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(find ~/.platformio/packages/framework-arduinoespressif32* -name \"default_8MB.csv\")",
+      "Bash(python3 -c \"import cryptography; print\\(cryptography.__version__\\)\")",
+      "Bash(pip3 show:*)",
+      "Bash(~/.platformio/penv/bin/python -c \"import cryptography; print\\(cryptography.__version__\\)\")",
+      "Bash(~/.platformio/penv/bin/pip show:*)",
+      "Bash(~/.platformio/penv/.espidf-5.5.3/bin/pip list:*)",
+      "Bash(~/.platformio/penv/.espidf-5.5.3/bin/pip install:*)",
+      "Bash(~/.platformio/penv/.espidf-5.5.3/bin/python --version)",
+      "Read(//usr/local/bin/**)",
+      "Read(//usr/bin/**)",
+      "Bash(grep cryptography:*)",
+      "Bash(rm -rf ~/.platformio/penv/.espidf-5.5.3)",
+      "Bash(/usr/local/bin/python3.11 -m venv ~/.platformio/penv/.espidf-5.5.3)",
+      "Bash(echo \"venv created with: $\\(~/.platformio/penv/.espidf-5.5.3/bin/python --version\\)\")",
+      "Bash(~/.platformio/penv/.espidf-5.5.3/bin/python -c \"import sys;print\\('{0}.{1}.{2}-{3}.{4}'.format\\(*list\\(sys.version_info\\)\\)\\)\")"
+    ]
+  }
+}

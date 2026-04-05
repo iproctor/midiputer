@@ -29,10 +29,9 @@ UIManager::~UIManager() {
 
 void UIManager::begin() {
     // Initialize display
-    M5Cardputer.Display.setRotation(1);
-    M5Cardputer.Display.fillScreen(Colors::BACKGROUND);
-    M5Cardputer.Display.setTextSize(1);
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.fillScreen(Colors::BACKGROUND);
+    display.setTextSize(1);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 
     _needsRedraw = true;
 }
@@ -95,7 +94,7 @@ void UIManager::startDeviceSelection(bool forSource) {
 //=============================================================================
 
 void UIManager::draw() {
-    M5Cardputer.Display.fillScreen(Colors::BACKGROUND);
+    display.fillScreen(Colors::BACKGROUND);
     drawHeader();
 
     switch (_currentScreen) {
@@ -127,8 +126,8 @@ void UIManager::draw() {
 }
 
 void UIManager::drawHeader() {
-    M5Cardputer.Display.fillRect(0, 0, SCREEN_WIDTH, HEADER_HEIGHT, Colors::HEADER_BG);
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::HEADER_BG);
+    display.fillRect(0, 0, SCREEN_WIDTH, HEADER_HEIGHT, Colors::HEADER_BG);
+    display.setTextColor(Colors::TEXT, Colors::HEADER_BG);
 
     String title;
     switch (_currentScreen) {
@@ -152,27 +151,27 @@ void UIManager::drawHeader() {
             break;
     }
 
-    M5Cardputer.Display.setCursor(4, 4);
-    M5Cardputer.Display.print(title);
+    display.setCursor(4, 4);
+    display.print(title);
 
     // Show device count on main screen
     if (_currentScreen == Screen::ROUTING_LIST) {
         String devInfo = String(deviceManager.getDeviceCount()) + " dev";
         int16_t x = SCREEN_WIDTH - (devInfo.length() * 6) - 4;
-        M5Cardputer.Display.setCursor(x, 4);
-        M5Cardputer.Display.print(devInfo);
+        display.setCursor(x, 4);
+        display.print(devInfo);
     }
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawFooter(const String& hint) {
     int16_t y = SCREEN_HEIGHT - FOOTER_HEIGHT;
-    M5Cardputer.Display.fillRect(0, y, SCREEN_WIDTH, FOOTER_HEIGHT, Colors::HEADER_BG);
-    M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, Colors::HEADER_BG);
-    M5Cardputer.Display.setCursor(4, y + 3);
-    M5Cardputer.Display.print(hint);
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.fillRect(0, y, SCREEN_WIDTH, FOOTER_HEIGHT, Colors::HEADER_BG);
+    display.setTextColor(Colors::TEXT_DIM, Colors::HEADER_BG);
+    display.setCursor(4, y + 3);
+    display.print(hint);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawRoutingList() {
@@ -180,12 +179,12 @@ void UIManager::drawRoutingList() {
     auto& routings = routingManager.getRoutings();
 
     if (routings.empty()) {
-        M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-        M5Cardputer.Display.setCursor(10, y + 20);
-        M5Cardputer.Display.print("No routings configured");
-        M5Cardputer.Display.setCursor(10, y + 36);
-        M5Cardputer.Display.print("Press 'N' to add new");
-        M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+        display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+        display.setCursor(10, y + 20);
+        display.print("No routings configured");
+        display.setCursor(10, y + 36);
+        display.print("Press 'N' to add new");
+        display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
         return;
     }
 
@@ -207,16 +206,16 @@ void UIManager::drawRoutingList() {
 
     // Draw scroll indicators if needed
     if (_scrollOffset > 0) {
-        M5Cardputer.Display.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
-        M5Cardputer.Display.setCursor(SCREEN_WIDTH - 12, HEADER_HEIGHT + 2);
-        M5Cardputer.Display.print("^");
+        display.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
+        display.setCursor(SCREEN_WIDTH - 12, HEADER_HEIGHT + 2);
+        display.print("^");
     }
     if (_scrollOffset + MAX_VISIBLE_ITEMS < (int)routings.size()) {
-        M5Cardputer.Display.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
-        M5Cardputer.Display.setCursor(SCREEN_WIDTH - 12, SCREEN_HEIGHT - FOOTER_HEIGHT - LINE_HEIGHT);
-        M5Cardputer.Display.print("v");
+        display.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
+        display.setCursor(SCREEN_WIDTH - 12, SCREEN_HEIGHT - FOOTER_HEIGHT - LINE_HEIGHT);
+        display.print("v");
     }
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected, bool flash) {
@@ -227,7 +226,7 @@ void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected
     } else if (selected) {
         bgColor = Colors::HIGHLIGHT_BG;
     }
-    M5Cardputer.Display.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
+    display.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
 
     // Status indicator
     bool active = routing.isActive();
@@ -239,7 +238,7 @@ void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected
     }
 
     // Draw status dot
-    M5Cardputer.Display.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
+    display.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
 
     // Get device names
     String srcName = getDeviceDisplayName(routing.getSourceDeviceId(), 10);
@@ -260,42 +259,42 @@ void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected
     }
 
     // Draw source name
-    M5Cardputer.Display.setTextColor(srcColor, bgColor);
-    M5Cardputer.Display.setCursor(16, y + 3);
-    M5Cardputer.Display.print(srcName);
+    display.setTextColor(srcColor, bgColor);
+    display.setCursor(16, y + 3);
+    display.print(srcName);
 
     // Draw arrow
-    M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, bgColor);
-    M5Cardputer.Display.setCursor(80, y + 3);
-    M5Cardputer.Display.print("->");
+    display.setTextColor(Colors::TEXT_DIM, bgColor);
+    display.setCursor(80, y + 3);
+    display.print("->");
 
     // Draw destination name
-    M5Cardputer.Display.setTextColor(dstColor, bgColor);
-    M5Cardputer.Display.setCursor(96, y + 3);
-    M5Cardputer.Display.print(dstName);
+    display.setTextColor(dstColor, bgColor);
+    display.setCursor(96, y + 3);
+    display.print(dstName);
 
     // Draw channel filter info
-    M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, bgColor);
-    M5Cardputer.Display.setCursor(168, y + 3);
-    M5Cardputer.Display.print(routing.getChannelFilter().toString());
+    display.setTextColor(Colors::TEXT_DIM, bgColor);
+    display.setCursor(168, y + 3);
+    display.print(routing.getChannelFilter().toString());
 
     // Draw last message if recent (within 2 seconds)
     const MidiMessage& lastMsg = routing.getLastMessage();
     if (lastMsg.timestamp > 0 && (millis() - lastMsg.timestamp) < 2000) {
-        M5Cardputer.Display.setTextColor(Colors::MIDI_FLASH, bgColor);
-        M5Cardputer.Display.setCursor(200, y + 3);
+        display.setTextColor(Colors::MIDI_FLASH, bgColor);
+        display.setCursor(200, y + 3);
         // Show abbreviated message type
         switch (lastMsg.getType()) {
-            case MidiMessageType::NOTE_ON:  M5Cardputer.Display.print("N"); break;
-            case MidiMessageType::NOTE_OFF: M5Cardputer.Display.print("n"); break;
-            case MidiMessageType::CONTROL_CHANGE: M5Cardputer.Display.print("C"); break;
-            case MidiMessageType::PROGRAM_CHANGE: M5Cardputer.Display.print("P"); break;
-            case MidiMessageType::PITCH_BEND: M5Cardputer.Display.print("B"); break;
-            default: M5Cardputer.Display.print("*"); break;
+            case MidiMessageType::NOTE_ON:  display.print("N"); break;
+            case MidiMessageType::NOTE_OFF: display.print("n"); break;
+            case MidiMessageType::CONTROL_CHANGE: display.print("C"); break;
+            case MidiMessageType::PROGRAM_CHANGE: display.print("P"); break;
+            case MidiMessageType::PITCH_BEND: display.print("B"); break;
+            default: display.print("*"); break;
         }
     }
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawRoutingEdit() {
@@ -311,51 +310,51 @@ void UIManager::drawRoutingEdit() {
 
     // Source device
     bool srcSelected = (_editField == EditField::SOURCE);
-    M5Cardputer.Display.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(labelX, y);
-    M5Cardputer.Display.print("Source:");
+    display.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    display.setCursor(labelX, y);
+    display.print("Source:");
 
     String srcName = getDeviceDisplayName(_editingRouting->getSourceDeviceId(), 18);
-    M5Cardputer.Display.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(valueX, y);
-    M5Cardputer.Display.print(srcName);
+    display.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
+    display.setCursor(valueX, y);
+    display.print(srcName);
     y += rowHeight;
 
     // Destination device
     bool dstSelected = (_editField == EditField::DESTINATION);
-    M5Cardputer.Display.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(labelX, y);
-    M5Cardputer.Display.print("Dest:");
+    display.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    display.setCursor(labelX, y);
+    display.print("Dest:");
 
     String dstName = getDeviceDisplayName(_editingRouting->getDestDeviceId(), 18);
-    M5Cardputer.Display.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(valueX, y);
-    M5Cardputer.Display.print(dstName);
+    display.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
+    display.setCursor(valueX, y);
+    display.print(dstName);
     y += rowHeight;
 
     // Channel filter
     bool chSelected = (_editField == EditField::CHANNELS);
-    M5Cardputer.Display.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(labelX, y);
-    M5Cardputer.Display.print("Channels:");
+    display.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    display.setCursor(labelX, y);
+    display.print("Channels:");
 
-    M5Cardputer.Display.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(valueX, y);
-    M5Cardputer.Display.print(_editingRouting->getChannelFilter().toString());
+    display.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
+    display.setCursor(valueX, y);
+    display.print(_editingRouting->getChannelFilter().toString());
     y += rowHeight;
 
     // Enabled toggle
     bool enSelected = (_editField == EditField::ENABLED);
-    M5Cardputer.Display.setTextColor(enSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(labelX, y);
-    M5Cardputer.Display.print("Enabled:");
+    display.setTextColor(enSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    display.setCursor(labelX, y);
+    display.print("Enabled:");
 
     uint16_t enColor = _editingRouting->isEnabled() ? Colors::ACTIVE : Colors::INACTIVE;
-    M5Cardputer.Display.setTextColor(enSelected ? Colors::HIGHLIGHT : enColor, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(valueX, y);
-    M5Cardputer.Display.print(_editingRouting->isEnabled() ? "Yes" : "No");
+    display.setTextColor(enSelected ? Colors::HIGHLIGHT : enColor, Colors::BACKGROUND);
+    display.setCursor(valueX, y);
+    display.print(_editingRouting->isEnabled() ? "Yes" : "No");
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawDeviceSelect() {
@@ -363,11 +362,11 @@ void UIManager::drawDeviceSelect() {
     auto& devices = deviceManager.getDevices();
 
     if (devices.empty()) {
-        M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-        M5Cardputer.Display.setCursor(10, y + 20);
-        M5Cardputer.Display.print("No MIDI devices connected");
-        M5Cardputer.Display.setCursor(10, y + 36);
-        M5Cardputer.Display.print("Connect devices via USB hub");
+        display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+        display.setCursor(10, y + 20);
+        display.print("No MIDI devices connected");
+        display.setCursor(10, y + 36);
+        display.print("Connect devices via USB hub");
         return;
     }
 
@@ -384,22 +383,22 @@ void UIManager::drawDeviceSelect() {
         const MidiDevice& device = devices[i];
 
         uint16_t bgColor = selected ? Colors::HIGHLIGHT_BG : Colors::BACKGROUND;
-        M5Cardputer.Display.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
+        display.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
 
         // Connection status indicator
         uint16_t statusColor = device.isConnected() ? Colors::ACTIVE : Colors::INACTIVE;
-        M5Cardputer.Display.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
+        display.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
 
         // Device name
         uint16_t textColor = device.isConnected() ? Colors::TEXT : Colors::TEXT_DISABLED;
-        M5Cardputer.Display.setTextColor(textColor, bgColor);
-        M5Cardputer.Display.setCursor(16, y + 3);
-        M5Cardputer.Display.print(device.getName().substring(0, 28));
+        display.setTextColor(textColor, bgColor);
+        display.setCursor(16, y + 3);
+        display.print(device.getName().substring(0, 28));
 
         y += LINE_HEIGHT;
     }
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawChannelSelect() {
@@ -429,65 +428,87 @@ void UIManager::drawChannelSelect() {
             uint16_t bgColor = selected ? Colors::HIGHLIGHT_BG : Colors::BACKGROUND;
             uint16_t textColor = enabled ? Colors::ACTIVE : Colors::TEXT_DISABLED;
 
-            M5Cardputer.Display.fillRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, bgColor);
+            display.fillRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, bgColor);
 
             if (selected) {
-                M5Cardputer.Display.drawRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, Colors::HIGHLIGHT);
+                display.drawRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, Colors::HIGHLIGHT);
             }
 
-            M5Cardputer.Display.setTextColor(textColor, bgColor);
-            M5Cardputer.Display.setCursor(x + 4, cy + 2);
+            display.setTextColor(textColor, bgColor);
+            display.setCursor(x + 4, cy + 2);
 
             char buf[8];
             snprintf(buf, sizeof(buf), "Ch%02d", ch);
-            M5Cardputer.Display.print(buf);
+            display.print(buf);
         }
     }
 
     // Show current selection summary
     y = SCREEN_HEIGHT - FOOTER_HEIGHT - 20;
-    M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(10, y);
-    M5Cardputer.Display.print("Selected: ");
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
-    M5Cardputer.Display.print(filter.toString());
+    display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+    display.setCursor(10, y);
+    display.print("Selected: ");
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.print(filter.toString());
 }
 
 void UIManager::drawSettings() {
-    int16_t y = HEADER_HEIGHT + 10;
+    int16_t y = HEADER_HEIGHT + 6;
 
-    M5Cardputer.Display.setCursor(10, y);
-    M5Cardputer.Display.print("Routings: ");
-    M5Cardputer.Display.print(routingManager.getRoutingCount());
-    y += 16;
+    display.setCursor(4, y);
+    display.print("Routings: ");
+    display.print(routingManager.getRoutingCount());
+    y += 13;
 
-    M5Cardputer.Display.setCursor(10, y);
-    M5Cardputer.Display.print("Devices: ");
-    M5Cardputer.Display.print(deviceManager.getDeviceCount());
-    y += 16;
+    display.setCursor(4, y);
+    display.print("MIDI devs: ");
+    display.print(deviceManager.getDeviceCount());
+    y += 13;
 
-    M5Cardputer.Display.setCursor(10, y);
-    M5Cardputer.Display.print("Messages routed: ");
-    M5Cardputer.Display.print(routingManager.getTotalMessagesRouted());
+    display.setCursor(4, y);
+    display.print("Msgs routed: ");
+    display.print(routingManager.getTotalMessagesRouted());
+    y += 13;
+
+    // USB event log - shows all USB devices seen (including non-MIDI and hub)
+    display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+    display.setCursor(4, y);
+    display.print("-- USB log --");
+    y += 11;
+
+    const auto& usbLog = deviceManager.getUsbLog();
+    if (usbLog.empty()) {
+        display.setCursor(4, y);
+        display.print("(no USB events)");
+    } else {
+        for (const auto& entry : usbLog) {
+            if (y >= SCREEN_HEIGHT - FOOTER_HEIGHT - 2) break;
+            display.setCursor(4, y);
+            display.print(entry.substring(0, 38));
+            y += 11;
+        }
+    }
+
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawConfirmDelete() {
     int16_t centerY = SCREEN_HEIGHT / 2;
 
-    M5Cardputer.Display.setTextColor(Colors::WARNING, Colors::BACKGROUND);
-    M5Cardputer.Display.setCursor(40, centerY - 16);
-    M5Cardputer.Display.print("Delete this routing?");
+    display.setTextColor(Colors::WARNING, Colors::BACKGROUND);
+    display.setCursor(40, centerY - 16);
+    display.print("Delete this routing?");
 
     if (_editingRouting) {
-        M5Cardputer.Display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-        M5Cardputer.Display.setCursor(40, centerY);
+        display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+        display.setCursor(40, centerY);
 
         String srcName = getDeviceDisplayName(_editingRouting->getSourceDeviceId(), 8);
         String dstName = getDeviceDisplayName(_editingRouting->getDestDeviceId(), 8);
-        M5Cardputer.Display.print(srcName + " -> " + dstName);
+        display.print(srcName + " -> " + dstName);
     }
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawNotification() {
@@ -498,14 +519,14 @@ void UIManager::drawNotification() {
     int16_t width = _notificationText.length() * 6 + padding * 2;
     int16_t x = (SCREEN_WIDTH - width) / 2;
 
-    M5Cardputer.Display.fillRoundRect(x - 2, y - 2, width + 4, height + 4, 4, Colors::BORDER);
-    M5Cardputer.Display.fillRoundRect(x, y, width, height, 4, Colors::HEADER_BG);
+    display.fillRoundRect(x - 2, y - 2, width + 4, height + 4, 4, Colors::BORDER);
+    display.fillRoundRect(x, y, width, height, 4, Colors::HEADER_BG);
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::HEADER_BG);
-    M5Cardputer.Display.setCursor(x + padding, y + 6);
-    M5Cardputer.Display.print(_notificationText);
+    display.setTextColor(Colors::TEXT, Colors::HEADER_BG);
+    display.setCursor(x + padding, y + 6);
+    display.print(_notificationText);
 
-    M5Cardputer.Display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 //=============================================================================
@@ -513,10 +534,10 @@ void UIManager::drawNotification() {
 //=============================================================================
 
 void UIManager::handleInput() {
-    M5Cardputer.update();
+    keyboard.update();
 
-    if (!M5Cardputer.Keyboard.isChange()) return;
-    if (!M5Cardputer.Keyboard.isPressed()) return;
+    if (!keyboard.isChange()) return;
+    if (!keyboard.isPressed()) return;
 
     char key = getKeyPress();
     if (key == 0) return;
@@ -546,7 +567,7 @@ void UIManager::handleInput() {
 }
 
 char UIManager::getKeyPress() {
-    Keyboard_Class::KeysState state = M5Cardputer.Keyboard.keysState();
+    auto& state = keyboard.keysState();
 
     // Check for special keys
     if (state.del) return '\b';
@@ -554,7 +575,7 @@ char UIManager::getKeyPress() {
     if (state.fn) return 0;  // Ignore fn by itself
 
     // Check word buffer for regular keys
-    if (state.word.length() > 0) {
+    if (state.word.size() > 0) {
         return state.word[0];
     }
 

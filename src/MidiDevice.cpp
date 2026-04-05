@@ -17,16 +17,36 @@ static bool s_usbHostInstalled = false;
 static SemaphoreHandle_t s_deviceMutex = nullptr;
 static MidiDeviceManager* s_managerInstance = nullptr;
 
-// MIDI USB class codes
-static constexpr uint8_t USB_CLASS_AUDIO = 0x01;
+// MIDI USB class codes (prefixed to avoid conflict with SDK macros)
+static constexpr uint8_t MIDI_USB_CLASS_AUDIO = 0x01;
 static constexpr uint8_t USB_SUBCLASS_MIDISTREAMING = 0x03;
 
-// USB Host task handle
+// USB Host task handles
 static TaskHandle_t s_usbHostTaskHandle = nullptr;
+static TaskHandle_t s_usbClientTaskHandle = nullptr;
+
+// Open MIDI device tracking
+struct OpenMidiDev {
+    bool active;
+    uint8_t usbAddress;
+    usb_device_handle_t devHandle;
+    uint8_t interfaceNum;
+    uint8_t bulkInEp;
+    uint8_t bulkOutEp;
+    uint16_t bulkInMps;
+    uint16_t bulkOutMps;
+    usb_transfer_t* inTransfer;
+};
+static constexpr int MAX_OPEN_MIDI = 4;
+static OpenMidiDev s_openMidi[MAX_OPEN_MIDI];
 
 // Forward declarations
 static void usb_host_lib_task(void* arg);
+static void usb_host_client_task(void* arg);
 static void usb_host_client_event_callback(const usb_host_client_event_msg_t* event_msg, void* arg);
+static void midi_bulk_in_cb(usb_transfer_t* transfer);
+static OpenMidiDev* find_open_midi(uint8_t address);
+static void teardown_midi_device(OpenMidiDev* dev);
 
 //=============================================================================
 // MidiDevice Implementation
@@ -94,6 +114,10 @@ MidiDeviceManager::~MidiDeviceManager() {
             vTaskDelete(s_usbHostTaskHandle);
             s_usbHostTaskHandle = nullptr;
         }
+        if (s_usbClientTaskHandle) {
+            vTaskDelete(s_usbClientTaskHandle);
+            s_usbClientTaskHandle = nullptr;
+        }
         if (s_clientHandle) {
             usb_host_client_deregister(s_clientHandle);
             s_clientHandle = nullptr;
@@ -141,7 +165,7 @@ bool MidiDeviceManager::begin() {
     // Register client
     usb_host_client_config_t client_config = {
         .is_synchronous = false,
-        .max_num_event_msg = 5,
+        .max_num_event_msg = 32,
         .async = {
             .client_event_callback = usb_host_client_event_callback,
             .callback_arg = this,
@@ -157,19 +181,28 @@ bool MidiDeviceManager::begin() {
     // Create USB Host library handling task
     xTaskCreate(usb_host_lib_task, "usb_host", 4096, nullptr, 5, &s_usbHostTaskHandle);
 
+    // Create dedicated task for client event handling (don't rely on main loop polling)
+    xTaskCreate(usb_host_client_task, "usb_client", 4096, nullptr, 5, &s_usbClientTaskHandle);
+
     _initialized = true;
     ESP_LOGI(TAG, "USB Host MIDI initialized");
     return true;
 }
 
 void MidiDeviceManager::update() {
-    if (!_initialized || !s_clientHandle) return;
+    if (!_initialized) return;
 
-    // Handle client events (non-blocking)
-    usb_host_client_handle_events(s_clientHandle, 0);
-
+    // Client events are handled in usb_host_client_task (dedicated task)
     // Process incoming MIDI data
     processMidiInput();
+}
+
+void MidiDeviceManager::appendUsbLog(const String& entry) {
+    if (_usbLog.size() >= USB_LOG_MAX) {
+        _usbLog.erase(_usbLog.begin());
+    }
+    _usbLog.push_back(entry);
+    ESP_LOGI(TAG, "USB: %s", entry.c_str());
 }
 
 MidiDevice* MidiDeviceManager::getDevice(uint8_t id) {
@@ -203,27 +236,9 @@ bool MidiDeviceManager::sendMidi(uint8_t deviceId, const MidiMessage& msg) {
 
 bool MidiDeviceManager::sendMidi(uint8_t deviceId, uint8_t status, uint8_t data1, uint8_t data2) {
     MidiDevice* device = getDevice(deviceId);
-    if (!device || !device->isConnected()) {
-        return false;
-    }
+    if (!device || !device->isConnected()) return false;
 
-    // Create USB MIDI packet (4 bytes)
-    // Byte 0: Cable Number (high nibble) | Code Index Number (low nibble)
-    // Bytes 1-3: MIDI data
-
-    uint8_t cin = (status >> 4) & 0x0F;  // Code Index Number = status high nibble
-    uint8_t packet[4] = {
-        cin,          // Cable 0, CIN from status
-        status,
-        data1,
-        data2
-    };
-
-    // TODO: Submit USB transfer to device OUT endpoint
-    ESP_LOGD(TAG, "Send MIDI to device %d: %02X %02X %02X",
-             deviceId, status, data1, data2);
-
-    return true;
+    return sendMidiRaw(device->getUsbAddress(), status, data1, data2);
 }
 
 void MidiDeviceManager::addKnownDevice(const String& uniqueId, const String& name) {
@@ -306,21 +321,114 @@ void MidiDeviceManager::onDeviceDisconnected(uint8_t address) {
 }
 
 void MidiDeviceManager::processMidiInput() {
-    // This is called from the main loop to check for incoming MIDI data
-    // The actual MIDI data would be received via USB bulk transfers
-    // and parsed here into MidiMessage structures
+    // MIDI data is received via USB bulk IN transfers (midi_bulk_in_cb)
+    // and dispatched via dispatchMidiReceived — nothing to do here
+}
 
-    // TODO: Implement USB MIDI bulk IN transfer handling
-    // For each connected device:
-    // 1. Check if data is available on IN endpoint
-    // 2. Read USB MIDI packets (4 bytes each)
-    // 3. Parse into MidiMessage
-    // 4. Call receive callback
+void MidiDeviceManager::dispatchMidiReceived(uint8_t usbAddress, uint8_t status, uint8_t data1, uint8_t data2) {
+    // Find the logical device for this USB address
+    uint8_t deviceId = 0;
+    for (auto& d : _devices) {
+        if (d.getUsbAddress() == usbAddress) {
+            deviceId = d.getId();
+            break;
+        }
+    }
+    if (deviceId == 0) return;
+
+    MidiMessage msg;
+    msg.status    = status;
+    msg.data1     = data1;
+    msg.data2     = data2;
+    msg.channel   = (status & 0x0F) + 1;
+    msg.timestamp = millis();
+
+    MidiDevice* dev = getDevice(deviceId);
+    if (dev) dev->setLastMessage(msg);
+
+    if (_receiveCallback) _receiveCallback(deviceId, msg);
+}
+
+bool MidiDeviceManager::sendMidiRaw(uint8_t usbAddress, uint8_t status, uint8_t data1, uint8_t data2) {
+    OpenMidiDev* slot = find_open_midi(usbAddress);
+    if (!slot || !slot->active || slot->bulkOutEp == 0) return false;
+
+    usb_transfer_t* transfer = nullptr;
+    if (usb_host_transfer_alloc(4, 0, &transfer) != ESP_OK) return false;
+
+    uint8_t cin = (status >> 4) & 0x0F;
+    transfer->device_handle    = slot->devHandle;
+    transfer->bEndpointAddress = slot->bulkOutEp;
+    transfer->callback         = [](usb_transfer_t* t) { usb_host_transfer_free(t); };
+    transfer->context          = nullptr;
+    transfer->num_bytes        = 4;
+    transfer->timeout_ms       = 100;
+    transfer->data_buffer[0]   = cin;
+    transfer->data_buffer[1]   = status;
+    transfer->data_buffer[2]   = data1;
+    transfer->data_buffer[3]   = data2;
+
+    esp_err_t err = usb_host_transfer_submit(transfer);
+    if (err != ESP_OK) {
+        usb_host_transfer_free(transfer);
+        return false;
+    }
+    return true;
 }
 
 //=============================================================================
 // USB Host Tasks and Callbacks
 //=============================================================================
+
+static OpenMidiDev* find_open_midi(uint8_t address) {
+    for (int i = 0; i < MAX_OPEN_MIDI; i++) {
+        if (s_openMidi[i].active && s_openMidi[i].usbAddress == address) {
+            return &s_openMidi[i];
+        }
+    }
+    return nullptr;
+}
+
+static void teardown_midi_device(OpenMidiDev* dev) {
+    if (!dev || !dev->active) return;
+    dev->active = false;
+
+    if (dev->inTransfer) {
+        usb_host_transfer_free(dev->inTransfer);
+        dev->inTransfer = nullptr;
+    }
+    if (dev->devHandle) {
+        usb_host_interface_release(s_clientHandle, dev->devHandle, dev->interfaceNum);
+        usb_host_device_close(s_clientHandle, dev->devHandle);
+        dev->devHandle = nullptr;
+    }
+}
+
+// Called when a bulk IN transfer completes (MIDI data received from device)
+static void midi_bulk_in_cb(usb_transfer_t* transfer) {
+    OpenMidiDev* dev = static_cast<OpenMidiDev*>(transfer->context);
+    if (!dev || !dev->active || !s_managerInstance) return;
+
+    if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
+        int len = transfer->actual_num_bytes;
+        // USB MIDI packets are 4 bytes each
+        for (int i = 0; i + 3 < len; i += 4) {
+            uint8_t cin  = transfer->data_buffer[i] & 0x0F;
+            uint8_t b1   = transfer->data_buffer[i + 1];
+            uint8_t b2   = transfer->data_buffer[i + 2];
+            uint8_t b3   = transfer->data_buffer[i + 3];
+            // CIN=0 or 0xF means padding/no-op
+            if (cin == 0 || b1 == 0) continue;
+            s_managerInstance->dispatchMidiReceived(dev->usbAddress, b1, b2, b3);
+        }
+    }
+
+    // Re-submit for continuous reception
+    if (dev->active) {
+        transfer->num_bytes = dev->bulkInMps;
+        usb_host_transfer_submit(transfer);
+    }
+}
 
 static void usb_host_lib_task(void* arg) {
     while (true) {
@@ -328,12 +436,20 @@ static void usb_host_lib_task(void* arg) {
         usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
 
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
-            // All clients deregistered
             ESP_LOGI(TAG, "No USB clients");
         }
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
-            // All devices freed
             ESP_LOGI(TAG, "All USB devices freed");
+        }
+    }
+}
+
+static void usb_host_client_task(void* arg) {
+    while (true) {
+        if (s_clientHandle) {
+            usb_host_client_handle_events(s_clientHandle, portMAX_DELAY);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
 }
@@ -347,91 +463,173 @@ static void usb_host_client_event_callback(const usb_host_client_event_msg_t* ev
             uint8_t address = event_msg->new_dev.address;
             ESP_LOGI(TAG, "New device connected, address: %d", address);
 
-            // Open device
             usb_device_handle_t dev_handle;
             esp_err_t err = usb_host_device_open(s_clientHandle, address, &dev_handle);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to open device: %s", esp_err_to_name(err));
+                char logbuf[32];
+                snprintf(logbuf, sizeof(logbuf), "open err a%d", address);
+                manager->appendUsbLog(logbuf);
                 break;
             }
 
-            // Get device descriptor
             const usb_device_desc_t* dev_desc;
-            err = usb_host_get_device_desc(dev_handle, &dev_desc);
+            err = usb_host_get_device_descriptor(dev_handle, &dev_desc);
             if (err != ESP_OK) {
+                char logbuf[40];
+                snprintf(logbuf, sizeof(logbuf), "devdesc err a%d", address);
+                manager->appendUsbLog(logbuf);
                 usb_host_device_close(s_clientHandle, dev_handle);
                 break;
             }
 
-            // Get device info for product name
+            // Get product name from string descriptor
             usb_device_info_t dev_info;
-            err = usb_host_device_info(dev_handle, &dev_info);
-
-            String deviceName = "MIDI Device";
-            if (err == ESP_OK && dev_info.str_desc_product != nullptr) {
-                // USB string descriptors are UTF-16LE with 2-byte header
+            String deviceName = "Unknown";
+            if (usb_host_device_info(dev_handle, &dev_info) == ESP_OK &&
+                dev_info.str_desc_product != nullptr) {
                 const uint8_t* str = (const uint8_t*)dev_info.str_desc_product;
-                uint8_t len = str[0];  // Total length including header
+                uint8_t len = str[0];
                 if (len > 2) {
                     char name[MAX_DEVICE_NAME_LEN];
                     int j = 0;
                     for (int i = 2; i < len && j < (int)MAX_DEVICE_NAME_LEN - 1; i += 2) {
-                        if (str[i] >= 32 && str[i] < 127) {
-                            name[j++] = str[i];
-                        }
+                        if (str[i] >= 32 && str[i] < 127) name[j++] = str[i];
                     }
                     name[j] = '\0';
-                    if (j > 0) {
-                        deviceName = String(name);
-                    }
+                    if (j > 0) deviceName = String(name);
                 }
             }
 
-            // Check configuration descriptor for MIDI interface
+            // Log device
+            {
+                char logbuf[48];
+                snprintf(logbuf, sizeof(logbuf), "a%d cls%02X %s",
+                         address, dev_desc->bDeviceClass, deviceName.substring(0, 18).c_str());
+                manager->appendUsbLog(logbuf);
+            }
+
+            // Scan config descriptor for MIDI streaming interface + endpoints
             const usb_config_desc_t* config_desc;
             err = usb_host_get_active_config_descriptor(dev_handle, &config_desc);
+            if (err != ESP_OK || config_desc == nullptr) {
+                char logbuf[32];
+                snprintf(logbuf, sizeof(logbuf), "cfgdesc err a%d", address);
+                manager->appendUsbLog(logbuf);
+                usb_host_device_close(s_clientHandle, dev_handle);
+                break;
+            }
 
+            // Walk descriptors to find MIDI streaming interface and its bulk endpoints
             bool isMidi = false;
-            if (err == ESP_OK && config_desc != nullptr) {
-                const uint8_t* p = (const uint8_t*)config_desc;
-                int offset = 0;
+            uint8_t midiIntfNum = 0;
+            uint8_t bulkIn = 0, bulkOut = 0;
+            uint16_t bulkInMps = 64, bulkOutMps = 64;
 
-                while (offset < config_desc->wTotalLength) {
-                    const usb_standard_desc_t* desc = (const usb_standard_desc_t*)(p + offset);
-                    if (desc->bLength == 0) break;
+            const uint8_t* p = (const uint8_t*)config_desc;
+            int totalLen = config_desc->wTotalLength;
+            int offset = 0;
+            bool inMidiIntf = false;
 
-                    if (desc->bDescriptorType == USB_B_DESCRIPTOR_TYPE_INTERFACE) {
-                        const usb_intf_desc_t* intf = (const usb_intf_desc_t*)desc;
-                        if (intf->bInterfaceClass == USB_CLASS_AUDIO &&
-                            intf->bInterfaceSubClass == USB_SUBCLASS_MIDISTREAMING) {
-                            isMidi = true;
-                            ESP_LOGI(TAG, "Found MIDI interface");
-                            break;
+            while (offset < totalLen) {
+                if (offset + 2 > totalLen) break;
+                uint8_t bLen  = p[offset];
+                uint8_t bType = p[offset + 1];
+                if (bLen == 0) break;
+
+                if (bType == USB_B_DESCRIPTOR_TYPE_INTERFACE) {
+                    const usb_intf_desc_t* intf = (const usb_intf_desc_t*)(p + offset);
+                    inMidiIntf = (intf->bInterfaceClass == MIDI_USB_CLASS_AUDIO &&
+                                  intf->bInterfaceSubClass == USB_SUBCLASS_MIDISTREAMING);
+                    if (inMidiIntf) {
+                        midiIntfNum = intf->bInterfaceNumber;
+                        isMidi = true;
+                    }
+                } else if (bType == USB_B_DESCRIPTOR_TYPE_ENDPOINT && inMidiIntf) {
+                    const usb_ep_desc_t* ep = (const usb_ep_desc_t*)(p + offset);
+                    // Only care about bulk endpoints
+                    if ((ep->bmAttributes & 0x03) == USB_BM_ATTRIBUTES_XFER_BULK) {
+                        if (ep->bEndpointAddress & 0x80) {
+                            bulkIn    = ep->bEndpointAddress;
+                            bulkInMps = ep->wMaxPacketSize;
+                        } else {
+                            bulkOut    = ep->bEndpointAddress;
+                            bulkOutMps = ep->wMaxPacketSize;
                         }
                     }
-                    offset += desc->bLength;
                 }
+                offset += bLen;
             }
 
-            if (isMidi) {
-                manager->onDeviceConnected(address, dev_desc->idVendor,
-                                          dev_desc->idProduct, deviceName);
-                // Note: Keep device open for MIDI communication
-                // In full implementation, claim interface and set up transfers
-            } else {
-                ESP_LOGI(TAG, "Device is not MIDI: %s (class=%02X)",
-                        deviceName.c_str(), dev_desc->bDeviceClass);
+            if (!isMidi || bulkIn == 0) {
+                // Not MIDI or no usable IN endpoint — close and move on
+                usb_host_device_close(s_clientHandle, dev_handle);
+                break;
             }
 
-            usb_host_device_close(s_clientHandle, dev_handle);
+            // Claim the MIDI streaming interface
+            err = usb_host_interface_claim(s_clientHandle, dev_handle, midiIntfNum, 0);
+            if (err != ESP_OK) {
+                char logbuf[40];
+                snprintf(logbuf, sizeof(logbuf), "claim err a%d: %s", address, esp_err_to_name(err));
+                manager->appendUsbLog(logbuf);
+                usb_host_device_close(s_clientHandle, dev_handle);
+                break;
+            }
+
+            // Find a slot for this device
+            OpenMidiDev* slot = nullptr;
+            for (int i = 0; i < MAX_OPEN_MIDI; i++) {
+                if (!s_openMidi[i].active) { slot = &s_openMidi[i]; break; }
+            }
+            if (!slot) {
+                manager->appendUsbLog("no slots");
+                usb_host_interface_release(s_clientHandle, dev_handle, midiIntfNum);
+                usb_host_device_close(s_clientHandle, dev_handle);
+                break;
+            }
+
+            slot->active       = true;
+            slot->usbAddress   = address;
+            slot->devHandle    = dev_handle;
+            slot->interfaceNum = midiIntfNum;
+            slot->bulkInEp     = bulkIn;
+            slot->bulkOutEp    = bulkOut;
+            slot->bulkInMps    = bulkInMps;
+            slot->bulkOutMps   = bulkOutMps;
+            slot->inTransfer   = nullptr;
+
+            // Allocate and submit bulk IN transfer
+            err = usb_host_transfer_alloc(bulkInMps, 0, &slot->inTransfer);
+            if (err == ESP_OK) {
+                slot->inTransfer->device_handle    = dev_handle;
+                slot->inTransfer->bEndpointAddress = bulkIn;
+                slot->inTransfer->callback         = midi_bulk_in_cb;
+                slot->inTransfer->context          = slot;
+                slot->inTransfer->num_bytes        = bulkInMps;
+                slot->inTransfer->timeout_ms       = 0;  // no timeout for bulk IN
+                usb_host_transfer_submit(slot->inTransfer);
+            }
+
+            manager->onDeviceConnected(address, dev_desc->idVendor,
+                                       dev_desc->idProduct, deviceName);
             break;
         }
 
         case USB_HOST_CLIENT_EVENT_DEV_GONE: {
+            usb_device_handle_t gone_hdl = event_msg->dev_gone.dev_hdl;
             ESP_LOGI(TAG, "Device disconnected");
-            // The address isn't provided in DEV_GONE, so we mark all as potentially disconnected
-            // A more robust implementation would track device handles
-            manager->onDeviceDisconnected(0);
+
+            // Find open MIDI device by handle
+            uint8_t address = 0;
+            for (int i = 0; i < MAX_OPEN_MIDI; i++) {
+                if (s_openMidi[i].active && s_openMidi[i].devHandle == gone_hdl) {
+                    address = s_openMidi[i].usbAddress;
+                    teardown_midi_device(&s_openMidi[i]);
+                    break;
+                }
+            }
+
+            manager->onDeviceDisconnected(address);
             break;
         }
 

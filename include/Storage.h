@@ -1,9 +1,9 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
-#include <Arduino.h>
-#include <Preferences.h>
+#include "arduino_compat.h"
 #include <vector>
+#include <utility>
 #include "Routing.h"
 
 // Storage manager for persistent configuration
@@ -35,8 +35,9 @@ public:
     size_t getUsedSpace();
 
 private:
-    Preferences _prefs;
     bool _initialized;
+
+    // NVS handles are opened/closed per operation
 
     // Namespace names
     static constexpr const char* NS_ROUTINGS = "routings";

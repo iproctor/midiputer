@@ -1,7 +1,7 @@
 #ifndef MIDI_TYPES_H
 #define MIDI_TYPES_H
 
-#include <Arduino.h>
+#include "arduino_compat.h"
 #include <vector>
 #include <string>
 

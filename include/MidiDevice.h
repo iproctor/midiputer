@@ -98,6 +98,17 @@ public:
     void addKnownDevice(const String& uniqueId, const String& name);
     String getKnownDeviceName(const String& uniqueId) const;
 
+    // Internal USB handling (called from static USB host callback)
+    void onDeviceConnected(uint8_t address, uint16_t vid, uint16_t pid, const String& name);
+    void onDeviceDisconnected(uint8_t address);
+    void processMidiInput();
+    void dispatchMidiReceived(uint8_t usbAddress, uint8_t status, uint8_t data1, uint8_t data2);
+    bool sendMidiRaw(uint8_t usbAddress, uint8_t status, uint8_t data1, uint8_t data2);
+
+    // USB debug log (last N events, including non-MIDI devices)
+    const std::vector<String>& getUsbLog() const { return _usbLog; }
+    void appendUsbLog(const String& entry);
+
 private:
     std::vector<MidiDevice> _devices;
     std::vector<std::pair<String, String>> _knownDevices;  // uniqueId -> name
@@ -105,11 +116,8 @@ private:
     DeviceChangeCallback _deviceChangeCallback;
     uint8_t _nextDeviceId;
     bool _initialized;
-
-    // Internal USB handling
-    void onDeviceConnected(uint8_t address, uint16_t vid, uint16_t pid, const String& name);
-    void onDeviceDisconnected(uint8_t address);
-    void processMidiInput();
+    std::vector<String> _usbLog;
+    static constexpr size_t USB_LOG_MAX = 16;
 };
 
 // Global device manager instance

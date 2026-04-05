@@ -21,11 +21,16 @@
  * - Q/Backspace: Back/Cancel
  */
 
-#include <M5Cardputer.h>
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "esp_log.h"
+#include "Cardputer.h"
 #include "MidiDevice.h"
 #include "Routing.h"
 #include "Storage.h"
 #include "UI.h"
+
+static const char* TAG = "Main";
 
 // Application state
 static bool systemInitialized = false;
@@ -37,29 +42,32 @@ void onMidiReceived(uint8_t deviceId, const MidiMessage& msg);
 void onDeviceChange();
 void printStartupInfo();
 
-void setup() {
-    // Initialize serial for debugging
-    Serial.begin(115200);
-    delay(100);
+extern "C" void app_main(void) {
+    // Initialize NVS flash
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
 
-    Serial.println("\n=================================");
-    Serial.println("  MIDI Router for M5 Cardputer");
-    Serial.println("=================================\n");
+    ESP_LOGI(TAG, "=================================");
+    ESP_LOGI(TAG, "  MIDI Router for M5 Cardputer");
+    ESP_LOGI(TAG, "=================================");
 
-    // Initialize M5Cardputer
-    auto cfg = M5.config();
-    M5Cardputer.begin(cfg, true);
+    // Initialize display and keyboard
+    display.init();
+    keyboard.begin();
 
     // Initialize storage first
-    Serial.println("Initializing storage...");
+    ESP_LOGI(TAG, "Initializing storage...");
     if (!storageManager.begin()) {
-        Serial.println("ERROR: Storage initialization failed!");
+        ESP_LOGE(TAG, "Storage initialization failed!");
     }
 
     // Initialize USB Host for MIDI devices
-    Serial.println("Initializing USB Host...");
+    ESP_LOGI(TAG, "Initializing USB Host...");
     if (!deviceManager.begin()) {
-        Serial.println("ERROR: USB Host initialization failed!");
+        ESP_LOGE(TAG, "USB Host initialization failed!");
         // Continue anyway - we can still configure routings
     }
 
@@ -68,11 +76,11 @@ void setup() {
     deviceManager.setDeviceChangeCallback(onDeviceChange);
 
     // Initialize routing manager (loads saved routings)
-    Serial.println("Loading routings...");
+    ESP_LOGI(TAG, "Loading routings...");
     routingManager.begin();
 
     // Initialize UI
-    Serial.println("Initializing UI...");
+    ESP_LOGI(TAG, "Initializing UI...");
     uiManager.begin();
 
     // Load known device names
@@ -85,52 +93,44 @@ void setup() {
     systemInitialized = true;
     printStartupInfo();
 
-    Serial.println("\nSystem ready!");
-    Serial.println("Use keyboard to navigate:");
-    Serial.println("  W/S - Up/Down");
-    Serial.println("  N - New routing");
-    Serial.println("  E - Edit routing");
-    Serial.println("  D - Delete routing");
-    Serial.println();
-}
+    ESP_LOGI(TAG, "System ready!");
+    ESP_LOGI(TAG, "Use keyboard to navigate: W/S=Up/Down N=New E=Edit D=Delete");
 
-void loop() {
-    if (!systemInitialized) return;
+    while (true) {
+        if (systemInitialized) {
+            // Update USB Host (handles device enumeration and MIDI input)
+            deviceManager.update();
 
-    // Update USB Host (handles device enumeration and MIDI input)
-    deviceManager.update();
+            // Update UI (handles display and keyboard input)
+            uiManager.update();
 
-    // Update UI (handles display and keyboard input)
-    uiManager.update();
+            // Periodic status update (for debugging)
+            if (millis() - lastStatusUpdate > STATUS_UPDATE_INTERVAL) {
+                lastStatusUpdate = millis();
 
-    // Periodic status update (for debugging)
-    if (millis() - lastStatusUpdate > STATUS_UPDATE_INTERVAL) {
-        lastStatusUpdate = millis();
+                static size_t lastDeviceCount = 0;
+                size_t currentDeviceCount = deviceManager.getDeviceCount();
 
-        // Check for new devices and log status
-        static size_t lastDeviceCount = 0;
-        size_t currentDeviceCount = deviceManager.getDeviceCount();
+                if (currentDeviceCount != lastDeviceCount) {
+                    ESP_LOGI(TAG, "Device count changed: %d -> %d",
+                             (int)lastDeviceCount, (int)currentDeviceCount);
+                    lastDeviceCount = currentDeviceCount;
 
-        if (currentDeviceCount != lastDeviceCount) {
-            Serial.printf("Device count changed: %d -> %d\n",
-                         lastDeviceCount, currentDeviceCount);
-            lastDeviceCount = currentDeviceCount;
-
-            // List all devices
-            for (size_t i = 0; i < currentDeviceCount; i++) {
-                MidiDevice* dev = deviceManager.getDeviceByIndex(i);
-                if (dev) {
-                    Serial.printf("  [%d] %s (%s)\n",
-                                 dev->getId(),
-                                 dev->getName().c_str(),
-                                 dev->isConnected() ? "connected" : "disconnected");
+                    for (size_t i = 0; i < currentDeviceCount; i++) {
+                        MidiDevice* dev = deviceManager.getDeviceByIndex(i);
+                        if (dev) {
+                            ESP_LOGI(TAG, "  [%d] %s (%s)",
+                                     dev->getId(),
+                                     dev->getName().c_str(),
+                                     dev->isConnected() ? "connected" : "disconnected");
+                        }
+                    }
                 }
             }
         }
-    }
 
-    // Small delay to prevent watchdog issues
-    delay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
 }
 
 /**
@@ -154,18 +154,17 @@ void onMidiReceived(uint8_t deviceId, const MidiMessage& msg) {
         }
     }
 
-    // Debug output
-    Serial.printf("MIDI [%d]: %s Ch%d\n",
-                 deviceId,
-                 msg.getDescription().c_str(),
-                 msg.channel);
+    ESP_LOGI(TAG, "MIDI [%d]: %s Ch%d",
+             deviceId,
+             msg.getDescription().c_str(),
+             msg.channel);
 }
 
 /**
  * Callback when device list changes (connect/disconnect)
  */
 void onDeviceChange() {
-    Serial.println("Device list changed");
+    ESP_LOGI(TAG, "Device list changed");
 
     // Save any new device names
     for (size_t i = 0; i < deviceManager.getDeviceCount(); i++) {
@@ -183,19 +182,18 @@ void onDeviceChange() {
  * Print startup information
  */
 void printStartupInfo() {
-    Serial.println("\n--- Startup Info ---");
-    Serial.printf("Routings loaded: %d\n", routingManager.getRoutingCount());
-    Serial.printf("Known devices: %d\n", deviceManager.getDeviceCount());
+    ESP_LOGI(TAG, "--- Startup Info ---");
+    ESP_LOGI(TAG, "Routings loaded: %d", (int)routingManager.getRoutingCount());
+    ESP_LOGI(TAG, "Known devices: %d", (int)deviceManager.getDeviceCount());
 
-    // List routings
     auto& routings = routingManager.getRoutings();
     for (const auto& routing : routings) {
-        Serial.printf("  Routing %d: %s -> %s [%s] %s\n",
-                     routing.getId(),
-                     routing.getSourceDeviceId().c_str(),
-                     routing.getDestDeviceId().c_str(),
-                     routing.getChannelFilter().toString().c_str(),
-                     routing.isEnabled() ? "enabled" : "disabled");
+        ESP_LOGI(TAG, "  Routing %d: %s -> %s [%s] %s",
+                 routing.getId(),
+                 routing.getSourceDeviceId().c_str(),
+                 routing.getDestDeviceId().c_str(),
+                 routing.getChannelFilter().toString().c_str(),
+                 routing.isEnabled() ? "enabled" : "disabled");
     }
-    Serial.println("-------------------\n");
+    ESP_LOGI(TAG, "-------------------");
 }
