@@ -31,7 +31,12 @@ void UIManager::begin() {
     // Initialize display
     display.fillScreen(Colors::BACKGROUND);
     display.setTextSize(1);
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+
+    // Create sprite for double-buffered, flicker-free rendering
+    _sprite.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT);
+    _sprite.setTextSize(1);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 
     _needsRedraw = true;
 }
@@ -53,10 +58,11 @@ void UIManager::update() {
         _needsRedraw = false;
     }
 
-    // Draw notification overlay if active
+    // Draw notification overlay on top of sprite, then push
     if (_notificationEndTime > 0) {
         if (millis() < _notificationEndTime) {
             drawNotification();
+            _sprite.pushSprite(&display, 0, 0);
         } else {
             _notificationEndTime = 0;
             _needsRedraw = true;
@@ -94,7 +100,7 @@ void UIManager::startDeviceSelection(bool forSource) {
 //=============================================================================
 
 void UIManager::draw() {
-    display.fillScreen(Colors::BACKGROUND);
+    _sprite.fillScreen(Colors::BACKGROUND);
     drawHeader();
 
     switch (_currentScreen) {
@@ -123,11 +129,14 @@ void UIManager::draw() {
             drawFooter("Y:Delete N:Cancel");
             break;
     }
+
+    // Push completed frame to display in one shot — no flicker
+    _sprite.pushSprite(&display, 0, 0);
 }
 
 void UIManager::drawHeader() {
-    display.fillRect(0, 0, SCREEN_WIDTH, HEADER_HEIGHT, Colors::HEADER_BG);
-    display.setTextColor(Colors::TEXT, Colors::HEADER_BG);
+    _sprite.fillRect(0, 0, SCREEN_WIDTH, HEADER_HEIGHT, Colors::HEADER_BG);
+    _sprite.setTextColor(Colors::TEXT, Colors::HEADER_BG);
 
     String title;
     switch (_currentScreen) {
@@ -151,27 +160,27 @@ void UIManager::drawHeader() {
             break;
     }
 
-    display.setCursor(4, 4);
-    display.print(title);
+    _sprite.setCursor(4, 4);
+    _sprite.print(title);
 
     // Show device count on main screen
     if (_currentScreen == Screen::ROUTING_LIST) {
         String devInfo = String(deviceManager.getDeviceCount()) + " dev";
         int16_t x = SCREEN_WIDTH - (devInfo.length() * 6) - 4;
-        display.setCursor(x, 4);
-        display.print(devInfo);
+        _sprite.setCursor(x, 4);
+        _sprite.print(devInfo);
     }
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawFooter(const String& hint) {
     int16_t y = SCREEN_HEIGHT - FOOTER_HEIGHT;
-    display.fillRect(0, y, SCREEN_WIDTH, FOOTER_HEIGHT, Colors::HEADER_BG);
-    display.setTextColor(Colors::TEXT_DIM, Colors::HEADER_BG);
-    display.setCursor(4, y + 3);
-    display.print(hint);
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.fillRect(0, y, SCREEN_WIDTH, FOOTER_HEIGHT, Colors::HEADER_BG);
+    _sprite.setTextColor(Colors::TEXT_DIM, Colors::HEADER_BG);
+    _sprite.setCursor(4, y + 3);
+    _sprite.print(hint);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawRoutingList() {
@@ -179,12 +188,12 @@ void UIManager::drawRoutingList() {
     auto& routings = routingManager.getRoutings();
 
     if (routings.empty()) {
-        display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-        display.setCursor(10, y + 20);
-        display.print("No routings configured");
-        display.setCursor(10, y + 36);
-        display.print("Press 'N' to add new");
-        display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+        _sprite.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+        _sprite.setCursor(10, y + 20);
+        _sprite.print("No routings configured");
+        _sprite.setCursor(10, y + 36);
+        _sprite.print("Press 'N' to add new");
+        _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
         return;
     }
 
@@ -206,16 +215,16 @@ void UIManager::drawRoutingList() {
 
     // Draw scroll indicators if needed
     if (_scrollOffset > 0) {
-        display.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
-        display.setCursor(SCREEN_WIDTH - 12, HEADER_HEIGHT + 2);
-        display.print("^");
+        _sprite.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
+        _sprite.setCursor(SCREEN_WIDTH - 12, HEADER_HEIGHT + 2);
+        _sprite.print("^");
     }
     if (_scrollOffset + MAX_VISIBLE_ITEMS < (int)routings.size()) {
-        display.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
-        display.setCursor(SCREEN_WIDTH - 12, SCREEN_HEIGHT - FOOTER_HEIGHT - LINE_HEIGHT);
-        display.print("v");
+        _sprite.setTextColor(Colors::HIGHLIGHT, Colors::BACKGROUND);
+        _sprite.setCursor(SCREEN_WIDTH - 12, SCREEN_HEIGHT - FOOTER_HEIGHT - LINE_HEIGHT);
+        _sprite.print("v");
     }
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected, bool flash) {
@@ -226,7 +235,7 @@ void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected
     } else if (selected) {
         bgColor = Colors::HIGHLIGHT_BG;
     }
-    display.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
+    _sprite.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
 
     // Status indicator
     bool active = routing.isActive();
@@ -238,7 +247,7 @@ void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected
     }
 
     // Draw status dot
-    display.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
+    _sprite.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
 
     // Get device names
     String srcName = getDeviceDisplayName(routing.getSourceDeviceId(), 10);
@@ -259,42 +268,42 @@ void UIManager::drawRoutingLine(int y, const MidiRouting& routing, bool selected
     }
 
     // Draw source name
-    display.setTextColor(srcColor, bgColor);
-    display.setCursor(16, y + 3);
-    display.print(srcName);
+    _sprite.setTextColor(srcColor, bgColor);
+    _sprite.setCursor(16, y + 3);
+    _sprite.print(srcName);
 
     // Draw arrow
-    display.setTextColor(Colors::TEXT_DIM, bgColor);
-    display.setCursor(80, y + 3);
-    display.print("->");
+    _sprite.setTextColor(Colors::TEXT_DIM, bgColor);
+    _sprite.setCursor(80, y + 3);
+    _sprite.print("->");
 
     // Draw destination name
-    display.setTextColor(dstColor, bgColor);
-    display.setCursor(96, y + 3);
-    display.print(dstName);
+    _sprite.setTextColor(dstColor, bgColor);
+    _sprite.setCursor(96, y + 3);
+    _sprite.print(dstName);
 
     // Draw channel filter info
-    display.setTextColor(Colors::TEXT_DIM, bgColor);
-    display.setCursor(168, y + 3);
-    display.print(routing.getChannelFilter().toString());
+    _sprite.setTextColor(Colors::TEXT_DIM, bgColor);
+    _sprite.setCursor(168, y + 3);
+    _sprite.print(routing.getChannelFilter().toString());
 
     // Draw last message if recent (within 2 seconds)
     const MidiMessage& lastMsg = routing.getLastMessage();
     if (lastMsg.timestamp > 0 && (millis() - lastMsg.timestamp) < 2000) {
-        display.setTextColor(Colors::MIDI_FLASH, bgColor);
-        display.setCursor(200, y + 3);
+        _sprite.setTextColor(Colors::MIDI_FLASH, bgColor);
+        _sprite.setCursor(200, y + 3);
         // Show abbreviated message type
         switch (lastMsg.getType()) {
-            case MidiMessageType::NOTE_ON:  display.print("N"); break;
-            case MidiMessageType::NOTE_OFF: display.print("n"); break;
-            case MidiMessageType::CONTROL_CHANGE: display.print("C"); break;
-            case MidiMessageType::PROGRAM_CHANGE: display.print("P"); break;
-            case MidiMessageType::PITCH_BEND: display.print("B"); break;
-            default: display.print("*"); break;
+            case MidiMessageType::NOTE_ON:  _sprite.print("N"); break;
+            case MidiMessageType::NOTE_OFF: _sprite.print("n"); break;
+            case MidiMessageType::CONTROL_CHANGE: _sprite.print("C"); break;
+            case MidiMessageType::PROGRAM_CHANGE: _sprite.print("P"); break;
+            case MidiMessageType::PITCH_BEND: _sprite.print("B"); break;
+            default: _sprite.print("*"); break;
         }
     }
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawRoutingEdit() {
@@ -310,51 +319,51 @@ void UIManager::drawRoutingEdit() {
 
     // Source device
     bool srcSelected = (_editField == EditField::SOURCE);
-    display.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    display.setCursor(labelX, y);
-    display.print("Source:");
+    _sprite.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    _sprite.setCursor(labelX, y);
+    _sprite.print("Source:");
 
     String srcName = getDeviceDisplayName(_editingRouting->getSourceDeviceId(), 18);
-    display.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
-    display.setCursor(valueX, y);
-    display.print(srcName);
+    _sprite.setTextColor(srcSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setCursor(valueX, y);
+    _sprite.print(srcName);
     y += rowHeight;
 
     // Destination device
     bool dstSelected = (_editField == EditField::DESTINATION);
-    display.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    display.setCursor(labelX, y);
-    display.print("Dest:");
+    _sprite.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    _sprite.setCursor(labelX, y);
+    _sprite.print("Dest:");
 
     String dstName = getDeviceDisplayName(_editingRouting->getDestDeviceId(), 18);
-    display.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
-    display.setCursor(valueX, y);
-    display.print(dstName);
+    _sprite.setTextColor(dstSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setCursor(valueX, y);
+    _sprite.print(dstName);
     y += rowHeight;
 
     // Channel filter
     bool chSelected = (_editField == EditField::CHANNELS);
-    display.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    display.setCursor(labelX, y);
-    display.print("Channels:");
+    _sprite.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    _sprite.setCursor(labelX, y);
+    _sprite.print("Channels:");
 
-    display.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
-    display.setCursor(valueX, y);
-    display.print(_editingRouting->getChannelFilter().toString());
+    _sprite.setTextColor(chSelected ? Colors::HIGHLIGHT : Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setCursor(valueX, y);
+    _sprite.print(_editingRouting->getChannelFilter().toString());
     y += rowHeight;
 
     // Enabled toggle
     bool enSelected = (_editField == EditField::ENABLED);
-    display.setTextColor(enSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
-    display.setCursor(labelX, y);
-    display.print("Enabled:");
+    _sprite.setTextColor(enSelected ? Colors::HIGHLIGHT : Colors::TEXT_DIM, Colors::BACKGROUND);
+    _sprite.setCursor(labelX, y);
+    _sprite.print("Enabled:");
 
     uint16_t enColor = _editingRouting->isEnabled() ? Colors::ACTIVE : Colors::INACTIVE;
-    display.setTextColor(enSelected ? Colors::HIGHLIGHT : enColor, Colors::BACKGROUND);
-    display.setCursor(valueX, y);
-    display.print(_editingRouting->isEnabled() ? "Yes" : "No");
+    _sprite.setTextColor(enSelected ? Colors::HIGHLIGHT : enColor, Colors::BACKGROUND);
+    _sprite.setCursor(valueX, y);
+    _sprite.print(_editingRouting->isEnabled() ? "Yes" : "No");
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawDeviceSelect() {
@@ -362,11 +371,11 @@ void UIManager::drawDeviceSelect() {
     auto& devices = deviceManager.getDevices();
 
     if (devices.empty()) {
-        display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-        display.setCursor(10, y + 20);
-        display.print("No MIDI devices connected");
-        display.setCursor(10, y + 36);
-        display.print("Connect devices via USB hub");
+        _sprite.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+        _sprite.setCursor(10, y + 20);
+        _sprite.print("No MIDI devices connected");
+        _sprite.setCursor(10, y + 36);
+        _sprite.print("Connect devices via USB hub");
         return;
     }
 
@@ -383,22 +392,22 @@ void UIManager::drawDeviceSelect() {
         const MidiDevice& device = devices[i];
 
         uint16_t bgColor = selected ? Colors::HIGHLIGHT_BG : Colors::BACKGROUND;
-        display.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
+        _sprite.fillRect(0, y, SCREEN_WIDTH, LINE_HEIGHT, bgColor);
 
         // Connection status indicator
         uint16_t statusColor = device.isConnected() ? Colors::ACTIVE : Colors::INACTIVE;
-        display.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
+        _sprite.fillCircle(8, y + LINE_HEIGHT / 2, 3, statusColor);
 
         // Device name
         uint16_t textColor = device.isConnected() ? Colors::TEXT : Colors::TEXT_DISABLED;
-        display.setTextColor(textColor, bgColor);
-        display.setCursor(16, y + 3);
-        display.print(device.getName().substring(0, 28));
+        _sprite.setTextColor(textColor, bgColor);
+        _sprite.setCursor(16, y + 3);
+        _sprite.print(device.getName().substring(0, 28));
 
         y += LINE_HEIGHT;
     }
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawChannelSelect() {
@@ -428,87 +437,87 @@ void UIManager::drawChannelSelect() {
             uint16_t bgColor = selected ? Colors::HIGHLIGHT_BG : Colors::BACKGROUND;
             uint16_t textColor = enabled ? Colors::ACTIVE : Colors::TEXT_DISABLED;
 
-            display.fillRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, bgColor);
+            _sprite.fillRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, bgColor);
 
             if (selected) {
-                display.drawRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, Colors::HIGHLIGHT);
+                _sprite.drawRect(x - 2, cy - 1, colWidth - 4, rowHeight - 2, Colors::HIGHLIGHT);
             }
 
-            display.setTextColor(textColor, bgColor);
-            display.setCursor(x + 4, cy + 2);
+            _sprite.setTextColor(textColor, bgColor);
+            _sprite.setCursor(x + 4, cy + 2);
 
             char buf[8];
             snprintf(buf, sizeof(buf), "Ch%02d", ch);
-            display.print(buf);
+            _sprite.print(buf);
         }
     }
 
     // Show current selection summary
     y = SCREEN_HEIGHT - FOOTER_HEIGHT - 20;
-    display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-    display.setCursor(10, y);
-    display.print("Selected: ");
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
-    display.print(filter.toString());
+    _sprite.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+    _sprite.setCursor(10, y);
+    _sprite.print("Selected: ");
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.print(filter.toString());
 }
 
 void UIManager::drawSettings() {
     int16_t y = HEADER_HEIGHT + 6;
 
-    display.setCursor(4, y);
-    display.print("Routings: ");
-    display.print(routingManager.getRoutingCount());
+    _sprite.setCursor(4, y);
+    _sprite.print("Routings: ");
+    _sprite.print(routingManager.getRoutingCount());
     y += 13;
 
-    display.setCursor(4, y);
-    display.print("MIDI devs: ");
-    display.print(deviceManager.getDeviceCount());
+    _sprite.setCursor(4, y);
+    _sprite.print("MIDI devs: ");
+    _sprite.print(deviceManager.getDeviceCount());
     y += 13;
 
-    display.setCursor(4, y);
-    display.print("Msgs routed: ");
-    display.print(routingManager.getTotalMessagesRouted());
+    _sprite.setCursor(4, y);
+    _sprite.print("Msgs routed: ");
+    _sprite.print(routingManager.getTotalMessagesRouted());
     y += 13;
 
     // USB event log - shows all USB devices seen (including non-MIDI and hub)
-    display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-    display.setCursor(4, y);
-    display.print("-- USB log --");
+    _sprite.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+    _sprite.setCursor(4, y);
+    _sprite.print("-- USB log --");
     y += 11;
 
     const auto& usbLog = deviceManager.getUsbLog();
     if (usbLog.empty()) {
-        display.setCursor(4, y);
-        display.print("(no USB events)");
+        _sprite.setCursor(4, y);
+        _sprite.print("(no USB events)");
     } else {
         for (const auto& entry : usbLog) {
             if (y >= SCREEN_HEIGHT - FOOTER_HEIGHT - 2) break;
-            display.setCursor(4, y);
-            display.print(entry.substring(0, 38));
+            _sprite.setCursor(4, y);
+            _sprite.print(entry.substring(0, 38));
             y += 11;
         }
     }
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawConfirmDelete() {
     int16_t centerY = SCREEN_HEIGHT / 2;
 
-    display.setTextColor(Colors::WARNING, Colors::BACKGROUND);
-    display.setCursor(40, centerY - 16);
-    display.print("Delete this routing?");
+    _sprite.setTextColor(Colors::WARNING, Colors::BACKGROUND);
+    _sprite.setCursor(40, centerY - 16);
+    _sprite.print("Delete this routing?");
 
     if (_editingRouting) {
-        display.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
-        display.setCursor(40, centerY);
+        _sprite.setTextColor(Colors::TEXT_DIM, Colors::BACKGROUND);
+        _sprite.setCursor(40, centerY);
 
         String srcName = getDeviceDisplayName(_editingRouting->getSourceDeviceId(), 8);
         String dstName = getDeviceDisplayName(_editingRouting->getDestDeviceId(), 8);
-        display.print(srcName + " -> " + dstName);
+        _sprite.print(srcName + " -> " + dstName);
     }
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 void UIManager::drawNotification() {
@@ -519,14 +528,14 @@ void UIManager::drawNotification() {
     int16_t width = _notificationText.length() * 6 + padding * 2;
     int16_t x = (SCREEN_WIDTH - width) / 2;
 
-    display.fillRoundRect(x - 2, y - 2, width + 4, height + 4, 4, Colors::BORDER);
-    display.fillRoundRect(x, y, width, height, 4, Colors::HEADER_BG);
+    _sprite.fillRoundRect(x - 2, y - 2, width + 4, height + 4, 4, Colors::BORDER);
+    _sprite.fillRoundRect(x, y, width, height, 4, Colors::HEADER_BG);
 
-    display.setTextColor(Colors::TEXT, Colors::HEADER_BG);
-    display.setCursor(x + padding, y + 6);
-    display.print(_notificationText);
+    _sprite.setTextColor(Colors::TEXT, Colors::HEADER_BG);
+    _sprite.setCursor(x + padding, y + 6);
+    _sprite.print(_notificationText);
 
-    display.setTextColor(Colors::TEXT, Colors::BACKGROUND);
+    _sprite.setTextColor(Colors::TEXT, Colors::BACKGROUND);
 }
 
 //=============================================================================

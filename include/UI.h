@@ -2,6 +2,7 @@
 #define UI_H
 
 #include "Cardputer.h"
+#include <lgfx/v1/LGFX_Sprite.hpp>
 #include "MidiTypes.h"
 #include "Routing.h"
 #include "MidiDevice.h"
@@ -107,6 +108,9 @@ private:
     // MIDI activity flash
     uint8_t _flashRoutingId;
     uint32_t _flashEndTime;
+
+    // Sprite for flicker-free double-buffered drawing
+    lgfx::LGFX_Sprite _sprite;
 
     // Drawing methods
     void draw();
